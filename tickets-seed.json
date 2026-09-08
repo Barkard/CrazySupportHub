@@ -27,6 +27,13 @@
       "email": "ana.torres@crazysupporthub.com",
       "password": "Agent1234!",
       "role": "agent"
+    },
+    {
+      "id": 5,
+      "name": "Leon Pineda",
+      "email": "leonpineda.dev1506@gmail.com",
+      "password": "28169315",
+      "role": "admin"
     }
   ],
   "tickets": [
