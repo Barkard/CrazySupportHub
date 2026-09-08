@@ -14,6 +14,8 @@ import {
   Sparkles,
   RefreshCw
 } from 'lucide-react';
+import { CreateTicketModal } from '@/components/CreateTicketModal';
+import { TicketDetailModal } from '@/components/TicketDetailModal';
 
 interface Ticket {
   id: number;
@@ -33,6 +35,8 @@ export default function DashboardPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
   const router = useRouter();
 
   const fetchTickets = async () => {
@@ -146,7 +150,7 @@ export default function DashboardPage() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
-              onClick={() => router.push('/dashboard/tickets/new')}
+              onClick={() => setIsCreateModalOpen(true)}
               className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-lg shadow-indigo-600/20"
             >
               <Plus className="w-4 h-4" />
@@ -248,7 +252,7 @@ export default function DashboardPage() {
                   filteredTickets.map((ticket) => (
                     <tr
                       key={ticket.id}
-                      onClick={() => router.push(`/dashboard/tickets/${ticket.id}`)}
+                      onClick={() => setSelectedTicketId(ticket.id)}
                       className="hover:bg-slate-800/50 cursor-pointer transition-colors"
                     >
                       <td className="px-6 py-4 text-xs font-mono text-slate-400">#{ticket.id}</td>
@@ -275,6 +279,20 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* Modales */}
+      <CreateTicketModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={fetchTickets}
+      />
+
+      <TicketDetailModal
+        ticketId={selectedTicketId}
+        isOpen={selectedTicketId !== null}
+        onClose={() => setSelectedTicketId(null)}
+        onTicketUpdated={fetchTickets}
+      />
     </div>
   );
 }
