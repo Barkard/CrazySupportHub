@@ -2,6 +2,7 @@ import express from 'express';
 import type { Request, Response, Express } from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.routes.js';
+import ticketRoutes from './routes/ticket.routes.js';
 
 const app: Express = express();
 
@@ -14,5 +15,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // Rutas del sistema
 app.use('/api/auth', authRoutes);
+app.use('/api/tickets', ticketRoutes);
+
 
 export default app;

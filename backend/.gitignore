@@ -24,3 +24,9 @@ pnpm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# AI agent configs (Cursor, Claude, Devin, etc.)
+.agents/
+.claude/
+.cursor/
+.devin/
