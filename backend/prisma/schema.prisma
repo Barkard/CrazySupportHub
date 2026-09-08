@@ -1,0 +1,80 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  admin
+  agent
+}
+
+enum TicketStatus {
+  open
+  in_progress
+  resolved
+  closed
+}
+
+enum Priority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum Category {
+  billing
+  technical
+  account
+  other
+}
+
+enum EnrichmentStatus {
+  pending
+  processing
+  done
+  failed
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(agent)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdTickets  Ticket[] @relation("CreatedTickets")
+  assignedTickets Ticket[] @relation("AssignedTickets")
+
+  @@map("users")
+}
+
+model Ticket {
+  id          Int          @id @default(autoincrement())
+  title       String
+  description String
+  status      TicketStatus @default(open)
+
+  createdBy  Int
+  creator    User  @relation("CreatedTickets", fields: [createdBy], references: [id], onDelete: Cascade)
+  assignedTo Int?
+  assignee   User? @relation("AssignedTickets", fields: [assignedTo], references: [id], onDelete: SetNull)
+
+  priority         Priority?
+  category         Category?
+  tags             String[]          @default([])
+  suggestedReply   String?           @db.Text
+  enrichmentStatus EnrichmentStatus  @default(pending)
+  enrichedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tickets")
+}
