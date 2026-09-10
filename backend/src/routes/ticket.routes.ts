@@ -21,5 +21,6 @@ router.post('/:id/retry', authenticateToken, retryEnrichment);
 
 // Callback público para n8n (se valida internamente con N8N_CALLBACK_SECRET)
 router.post('/:id/enrich', enrichTicket);
+router.patch('/:id/enrich', enrichTicket);
 
 export default router;

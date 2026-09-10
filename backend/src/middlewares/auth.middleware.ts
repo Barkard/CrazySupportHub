@@ -9,6 +9,24 @@ interface JwtPayload {
 }
 
 export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+  // 1. Verificar si viene con el secreto de n8n / webhook compartido
+  const expectedSecret = process.env.N8N_CALLBACK_SECRET || 'secreto_compartido_para_n8n';
+  const providedSecret =
+    req.headers['x-callback-secret'] ||
+    req.headers['x-n8n-secret'] ||
+    (req.body && req.body.secret) ||
+    req.query.secret;
+
+  if (providedSecret && providedSecret === expectedSecret) {
+    req.user = {
+      id: 1,
+      email: 'system@n8n.automation',
+      role: Role.admin,
+    };
+    return next();
+  }
+
+  // 2. Si no es n8n con secreto, verificar header Authorization con Bearer JWT
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 

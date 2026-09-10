@@ -159,11 +159,16 @@ export const retryEnrichment = async (req: Request, res: Response) => {
 export const enrichTicket = async (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const { priority, category, tags, suggestedReply, secret } = req.body;
+    const { priority, category, tags, suggestedReply, secret } = req.body || {};
+    const rawSecret =
+      secret ||
+      req.headers['x-callback-secret'] ||
+      req.headers['x-n8n-secret'] ||
+      req.query.secret;
 
     // Validar token/secreto de n8n para seguridad
     const expectedSecret = process.env.N8N_CALLBACK_SECRET || 'secreto_compartido_para_n8n';
-    if (secret !== expectedSecret) {
+    if (!rawSecret || rawSecret !== expectedSecret) {
       return res.status(401).json({ error: 'Secreto de callback inválido' });
     }
 
@@ -172,16 +177,31 @@ export const enrichTicket = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Ticket no encontrado' });
     }
 
+    // Normalizar prioridad y categoría (evitar errores por mayúsculas de IA)
+    const normalizedPriority = priority ? (String(priority).toLowerCase() as Priority) : undefined;
+    const normalizedCategory = category ? (String(category).toLowerCase() as Category) : undefined;
+
+    const dataToUpdate: any = {
+      enrichmentStatus: EnrichmentStatus.done,
+      enrichedAt: new Date(),
+    };
+
+    if (normalizedPriority) dataToUpdate.priority = normalizedPriority;
+    if (normalizedCategory) dataToUpdate.category = normalizedCategory;
+    if (tags !== undefined) {
+      dataToUpdate.tags = Array.isArray(tags)
+        ? tags
+        : typeof tags === 'string'
+        ? tags.split(',').map((t: string) => t.trim()).filter(Boolean)
+        : [];
+    }
+    if (suggestedReply !== undefined) {
+      dataToUpdate.suggestedReply = suggestedReply;
+    }
+
     const enrichedTicket = await prisma.ticket.update({
       where: { id },
-      data: {
-        priority: priority as Priority,
-        category: category as Category,
-        tags: Array.isArray(tags) ? tags : [],
-        suggestedReply,
-        enrichmentStatus: EnrichmentStatus.done,
-        enrichedAt: new Date(),
-      },
+      data: dataToUpdate,
     });
 
     console.log(`✨ Ticket #${id} enriquecido por IA exitosamente`);
