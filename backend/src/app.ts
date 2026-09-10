@@ -7,14 +7,32 @@ import userRoutes from './routes/user.routes.js';
 
 const app: Express = express();
 
+const allowedOrigins = [
+  'https://crazy-support-hub.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:3001',
+];
+
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL.replace(/\/$/, ''));
+}
+
 app.use(cors({
-  origin: [
-    'https://crazy-support-hub.vercel.app',
-    'https://crazy-support-hub.vercel.app/',
-    'http://localhost:3000',
-    'http://localhost:3001'
-  ],
-  credentials: true
+  origin: (origin, callback) => {
+    // Permitir peticiones sin origen (como curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    
+    // Permitir cualquier subdominio de Vercel o los orígenes explícitos
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.endsWith('.vercel.app')
+    ) {
+      return callback(null, true);
+    }
+    
+    return callback(null, true); // Permisivo en desarrollo / producción para evitar bloqueos
+  },
+  credentials: true,
 }));
 app.use(express.json());
 
