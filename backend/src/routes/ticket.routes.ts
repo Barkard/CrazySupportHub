@@ -6,6 +6,7 @@ import {
   createTicket,
   updateTicket,
   enrichTicket,
+  retryEnrichment,
 } from '../controllers/ticket.controller.js';
 import { authenticateToken } from '../middlewares/auth.middleware.js';
 
@@ -16,6 +17,7 @@ router.get('/', authenticateToken, getTickets);
 router.get('/:id', authenticateToken, getTicketById);
 router.post('/', authenticateToken, createTicket);
 router.patch('/:id', authenticateToken, updateTicket);
+router.post('/:id/retry', authenticateToken, retryEnrichment);
 
 // Callback público para n8n (se valida internamente con N8N_CALLBACK_SECRET)
 router.post('/:id/enrich', enrichTicket);

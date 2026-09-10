@@ -2,17 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { 
-  X, 
-  Sparkles, 
-  Copy, 
-  Check, 
-  Loader2, 
-  AlertCircle, 
-  Clock, 
-  Tag, 
+import { useAuth } from '@/context/AuthContext';
+import {
+  X,
+  Sparkles,
+  Copy,
+  Check,
+  Loader2,
+  AlertCircle,
+  Clock,
+  Tag,
   User as UserIcon,
-  Layers
+  Layers,
+  Send,
+  CornerDownLeft,
+  RefreshCw,
+  UserCheck,
+  Shield
 } from 'lucide-react';
 
 interface Ticket {
@@ -27,7 +33,14 @@ interface Ticket {
   enrichmentStatus: 'pending' | 'processing' | 'completed' | 'done' | 'failed';
   createdAt: string;
   creator?: { id?: number; name?: string; email?: string };
-  assignee?: { id?: number; name?: string; email?: string };
+  assignee?: { id?: number; name?: string; email?: string } | null;
+}
+
+interface SimpleUser {
+  id: number;
+  name: string;
+  email: string;
+  role: 'agent' | 'admin';
 }
 
 interface TicketDetailModalProps {
@@ -43,21 +56,29 @@ export function TicketDetailModal({
   onClose,
   onTicketUpdated,
 }: TicketDetailModalProps) {
+  const { user } = useAuth();
   const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [agents, setAgents] = useState<SimpleUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [retryingEnrichment, setRetryingEnrichment] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [replySent, setReplySent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Cargar ticket y lista de agentes (si es admin)
   useEffect(() => {
     if (isOpen && ticketId) {
       setLoading(true);
       setError(null);
       setCopied(false);
+      setReplySent(false);
 
       api.get(`/tickets/${ticketId}`)
         .then((response) => {
           setTicket(response.data);
+          setReplyText(response.data.suggestedReply || '');
         })
         .catch((err) => {
           console.error('Error al cargar ticket:', err);
@@ -66,11 +87,19 @@ export function TicketDetailModal({
         .finally(() => {
           setLoading(false);
         });
+
+      // Cargar usuarios si es admin para permitir reasignación
+      if (user?.role === 'admin') {
+        api.get('/users')
+          .then((res) => setAgents(res.data))
+          .catch((e) => console.error('Error al cargar agentes para asignación:', e));
+      }
     } else {
       setTicket(null);
       setError(null);
+      setReplyText('');
     }
-  }, [isOpen, ticketId]);
+  }, [isOpen, ticketId, user]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -84,6 +113,7 @@ export function TicketDetailModal({
 
   if (!isOpen) return null;
 
+  // Actualizar estado del ticket
   const handleStatusChange = async (newStatus: string) => {
     if (!ticket) return;
     setUpdating(true);
@@ -100,11 +130,78 @@ export function TicketDetailModal({
     }
   };
 
+  // Reasignar agente (Admin o Autoasignación)
+  const handleAssignTicket = async (assigneeId: number | null) => {
+    if (!ticket) return;
+    setUpdating(true);
+    try {
+      const response = await api.patch(`/tickets/${ticket.id}`, {
+        assignedTo: assigneeId,
+      });
+      setTicket(response.data);
+      if (onTicketUpdated) onTicketUpdated();
+    } catch (err) {
+      console.error('Error al asignar ticket:', err);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Reintentar Enriquecimiento IA (Admin)
+  const handleRetryEnrichment = async () => {
+    if (!ticket) return;
+    setRetryingEnrichment(true);
+    try {
+      const response = await api.post(`/tickets/${ticket.id}/retry`);
+      setTicket(response.data);
+      if (onTicketUpdated) onTicketUpdated();
+    } catch (err) {
+      console.error('Error al reintentar enriquecimiento:', err);
+      alert('Error al reintentar enriquecimiento por IA.');
+    } finally {
+      setRetryingEnrichment(false);
+    }
+  };
+
+  // Copiar respuesta sugerida al portapapeles
   const handleCopyReply = () => {
     if (ticket?.suggestedReply) {
       navigator.clipboard.writeText(ticket.suggestedReply);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  // Insertar respuesta de IA en el editor del agente
+  const handleInsertReply = () => {
+    if (ticket?.suggestedReply) {
+      setReplyText(ticket.suggestedReply);
+    }
+  };
+
+  // Enviar respuesta y opcionalmente resolver ticket
+  const handleSendResponse = async (resolveTicket = false) => {
+    if (!ticket || !replyText.trim()) return;
+    setUpdating(true);
+    try {
+      const payload: any = {
+        suggestedReply: replyText,
+      };
+      if (resolveTicket) {
+        payload.status = 'resolved';
+      } else if (ticket.status === 'open') {
+        payload.status = 'in_progress';
+      }
+
+      const response = await api.patch(`/tickets/${ticket.id}`, payload);
+      setTicket(response.data);
+      setReplySent(true);
+      setTimeout(() => setReplySent(false), 3000);
+      if (onTicketUpdated) onTicketUpdated();
+    } catch (err) {
+      console.error('Error al guardar respuesta:', err);
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -125,6 +222,7 @@ export function TicketDetailModal({
   };
 
   const isEnriched = ticket?.enrichmentStatus === 'completed' || ticket?.enrichmentStatus === 'done';
+  const isAssignedToMe = ticket?.assignee?.id === user?.id;
 
   return (
     <div 
@@ -156,7 +254,7 @@ export function TicketDetailModal({
                   value={ticket.status}
                   onChange={(e) => handleStatusChange(e.target.value)}
                   disabled={updating}
-                  className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 transition-colors"
+                  className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
                 >
                   <option value="open">Abierto</option>
                   <option value="in_progress">En Progreso</option>
@@ -191,7 +289,28 @@ export function TicketDetailModal({
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Main Content (Left / 2 Columns) */}
               <div className="lg:col-span-2 space-y-6">
-                {/* Description Box */}
+                {/* Banner de Autoasignación para Agentes si no está asignado */}
+                {user?.role === 'agent' && !isAssignedToMe && (
+                  <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-xl p-3.5 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-xs text-indigo-300">
+                      <UserCheck className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span>
+                        {ticket.assignee 
+                          ? `Asignado actualmente a: ${ticket.assignee.name}` 
+                          : 'Este ticket no tiene un agente asignado.'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleAssignTicket(user.id)}
+                      disabled={updating}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors shrink-0 shadow-sm"
+                    >
+                      Asignármelo a mí
+                    </button>
+                  </div>
+                )}
+
+                {/* Descripción */}
                 <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-5 space-y-2">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
                     Descripción del Problema
@@ -209,40 +328,101 @@ export function TicketDetailModal({
                         <Sparkles className="w-4 h-4" />
                         <span>Respuesta Sugerida por IA</span>
                       </div>
-                      <button
-                        onClick={handleCopyReply}
-                        className="flex items-center gap-1.5 text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
-                      >
-                        {copied ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            <span className="text-emerald-400">Copiado</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copiar Respuesta</span>
-                          </>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleInsertReply}
+                          className="flex items-center gap-1.5 text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                          title="Cargar texto en el editor de respuesta"
+                        >
+                          <CornerDownLeft className="w-3.5 h-3.5" />
+                          <span>Insertar en Respuesta</span>
+                        </button>
+                        <button
+                          onClick={handleCopyReply}
+                          className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                        >
+                          {copied ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-emerald-400">Copiado</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Copiar</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-4 text-sm text-slate-200 leading-relaxed font-sans whitespace-pre-line">
+                    <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-4 text-sm text-slate-200 leading-relaxed whitespace-pre-line">
                       {ticket.suggestedReply}
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-slate-950/40 border border-slate-800/60 rounded-xl p-4 flex items-center gap-3 text-xs text-slate-400">
-                    <Sparkles className="w-4 h-4 text-indigo-400/60 shrink-0" />
-                    <span>
-                      {ticket.enrichmentStatus === 'processing'
-                        ? 'La IA está procesando y enriqueciendo este ticket...'
-                        : ticket.enrichmentStatus === 'failed'
-                        ? 'No se pudo generar el enriquecimiento por IA para este ticket.'
-                        : 'Enriquecimiento por IA pendiente de procesamiento.'}
-                    </span>
+                  <div className="bg-slate-950/40 border border-slate-800/60 rounded-xl p-4 flex items-center justify-between gap-3 text-xs text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-400/60 shrink-0" />
+                      <span>
+                        {ticket.enrichmentStatus === 'processing'
+                          ? 'La IA está procesando y clasificando este ticket...'
+                          : ticket.enrichmentStatus === 'failed'
+                          ? 'El enriquecimiento por IA ha fallado.'
+                          : 'Enriquecimiento por IA pendiente de procesamiento.'}
+                      </span>
+                    </div>
+                    {/* Botón de reintento para Administrador */}
+                    {user?.role === 'admin' && (
+                      <button
+                        onClick={handleRetryEnrichment}
+                        disabled={retryingEnrichment}
+                        className="flex items-center gap-1.5 text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 px-3 py-1 rounded-lg transition-colors shrink-0"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${retryingEnrichment ? 'animate-spin' : ''}`} />
+                        <span>Reintentar IA</span>
+                      </button>
+                    )}
                   </div>
                 )}
+
+                {/* Área de Redacción y Respuesta del Agente */}
+                <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
+                      Redactar Respuesta al Cliente
+                    </span>
+                    {replySent && (
+                      <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" /> Respuesta enviada exitosamente
+                      </span>
+                    )}
+                  </div>
+                  <textarea
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Escribe aquí la respuesta oficial o utiliza la sugerida por la IA..."
+                    rows={4}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 resize-y"
+                  />
+                  <div className="flex items-center justify-end gap-2.5 pt-1">
+                    <button
+                      onClick={() => handleSendResponse(false)}
+                      disabled={updating || !replyText.trim()}
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg transition-colors font-medium disabled:opacity-40"
+                    >
+                      Guardar Borrador
+                    </button>
+                    <button
+                      onClick={() => handleSendResponse(true)}
+                      disabled={updating || !replyText.trim()}
+                      className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-indigo-600/20 disabled:opacity-40"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Enviar y Marcar Resuelto</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Sidebar Info (Right Column) */}
@@ -252,10 +432,44 @@ export function TicketDetailModal({
                     Metadatos del Ticket
                   </h3>
 
-                  <div className="space-y-3.5">
+                  <div className="space-y-4">
                     <div>
-                      <span className="text-slate-500 text-xs block mb-1">Prioridad</span>
+                      <span className="text-slate-500 text-xs block mb-1">Prioridad IA</span>
                       <div>{getPriorityBadge(ticket.priority)}</div>
+                    </div>
+
+                    {/* Asignación de Agente (Extendido para Admin, Simple para Agente) */}
+                    <div>
+                      <span className="text-slate-500 text-xs block mb-1">Agente Asignado</span>
+                      {user?.role === 'admin' ? (
+                        <div className="space-y-1">
+                          <select
+                            value={ticket.assignee?.id ?? ''}
+                            onChange={(e) => handleAssignTicket(e.target.value ? Number(e.target.value) : null)}
+                            disabled={updating}
+                            className="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                          >
+                            <option value="">-- Sin asignar --</option>
+                            {agents.map((ag) => (
+                              <option key={ag.id} value={ag.id}>
+                                {ag.name} ({ag.role === 'admin' ? 'Admin' : 'Agente'})
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-[11px] text-slate-500 block">
+                            Como admin puedes forzar la reasignación.
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <UserIcon className="w-4 h-4 text-slate-400" />
+                          <span className="text-slate-200 text-sm font-medium">
+                            {ticket.assignee?.name || (
+                              <span className="text-amber-400/90 text-xs">Sin asignar</span>
+                            )}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div>

@@ -34,6 +34,13 @@
       "email": "leonpineda.dev1506@gmail.com",
       "password": "28169315",
       "role": "admin"
+    },
+    {
+      "id": 6,
+      "name": "kevin saavedra",
+      "email": "kevin@gmail.com",
+      "password": "28169315",
+      "role": "agent"
     }
   ],
   "tickets": [

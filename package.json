@@ -4,12 +4,20 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "concurrently -n \"backend,frontend\" -c \"blue.bold,cyan.bold\" \"pnpm --dir backend dev\" \"pnpm --dir frontend dev\"",
+    "dev:backend": "pnpm --dir backend dev",
+    "dev:frontend": "pnpm --dir frontend dev",
+    "build": "pnpm --dir backend build && pnpm --dir frontend build",
+    "seed": "pnpm --dir backend exec prisma db seed",
+    "studio": "pnpm --dir backend exec prisma studio"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.20.0"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
   }
 }

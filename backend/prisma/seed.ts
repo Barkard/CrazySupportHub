@@ -45,6 +45,10 @@ async function main() {
     });
   }
 
+  // Sincronizar secuencias de autoincremento en PostgreSQL
+  await prisma.$executeRawUnsafe(`SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE((SELECT MAX(id) FROM users), 1));`);
+  await prisma.$executeRawUnsafe(`SELECT setval(pg_get_serial_sequence('tickets', 'id'), COALESCE((SELECT MAX(id) FROM tickets), 1));`);
+
   console.log('¡Seed completado con éxito!');
 }
 

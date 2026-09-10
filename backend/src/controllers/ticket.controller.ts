@@ -101,18 +101,57 @@ export const updateTicket = async (req: Request, res: Response) => {
     if (status) data.status = status as TicketStatus;
     if (priority) data.priority = priority as Priority;
     if (category) data.category = category as Category;
-    if (assignedTo !== undefined) data.assignedTo = Number(assignedTo);
+    if (assignedTo !== undefined) {
+      data.assignedTo = assignedTo === null || assignedTo === '' || assignedTo === 0 ? null : Number(assignedTo);
+    }
     if (tags !== undefined) data.tags = tags;
     if (suggestedReply !== undefined) data.suggestedReply = suggestedReply;
 
     const updatedTicket = await prisma.ticket.update({
       where: { id },
       data,
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+      },
     });
 
     return res.json(updatedTicket);
   } catch (error) {
     return res.status(500).json({ error: 'Error al actualizar el ticket' });
+  }
+};
+
+// 6. Reintentar enriquecimiento de IA manualmente
+export const retryEnrichment = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+
+    const ticket = await prisma.ticket.findUnique({ where: { id } });
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
+
+    const updatedTicket = await prisma.ticket.update({
+      where: { id },
+      data: {
+        enrichmentStatus: EnrichmentStatus.pending,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    // Re-disparar webhook asíncrono
+    triggerN8nEnrichment(updatedTicket).catch((err: unknown) =>
+      console.error('Error al reintentar enriquecimiento en n8n:', err)
+    );
+
+    return res.json(updatedTicket);
+  } catch (error) {
+    console.error('Error al reintentar enriquecimiento:', error);
+    return res.status(500).json({ error: 'Error al reintentar enriquecimiento de IA' });
   }
 };
 
