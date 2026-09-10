@@ -155,6 +155,26 @@ export const retryEnrichment = async (req: Request, res: Response) => {
   }
 };
 
+// Helpers para parsear enums de forma segura (soporta español, inglés y texto libre de IA)
+function parsePriority(val: unknown): Priority | undefined {
+  if (!val) return undefined;
+  const s = String(val).toLowerCase().trim();
+  if (s === 'low' || s === 'baja' || s === 'bajo') return Priority.low;
+  if (s === 'medium' || s === 'media' || s === 'medio') return Priority.medium;
+  if (s === 'high' || s === 'alta' || s === 'alto') return Priority.high;
+  if (s === 'urgent' || s === 'urgente' || s === 'critica' || s === 'crítica' || s === 'critical') return Priority.urgent;
+  return Priority.medium;
+}
+
+function parseCategory(val: unknown): Category | undefined {
+  if (!val) return undefined;
+  const s = String(val).toLowerCase().trim();
+  if (s === 'billing' || s.includes('factur') || s.includes('pago') || s.includes('cobro') || s.includes('tarjeta')) return Category.billing;
+  if (s === 'technical' || s.includes('tecnic') || s.includes('técnic') || s.includes('error') || s.includes('bug') || s.includes('sistema') || s.includes('falla') || s.includes('caida') || s.includes('caída')) return Category.technical;
+  if (s === 'account' || s.includes('cuenta') || s.includes('usuario') || s.includes('login') || s.includes('acceso') || s.includes('perfil')) return Category.account;
+  return Category.other;
+}
+
 // 5. Callback Endpoint para n8n (Recibe la clasificación de la IA)
 export const enrichTicket = async (req: Request, res: Response) => {
   try {
@@ -177,17 +197,17 @@ export const enrichTicket = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Ticket no encontrado' });
     }
 
-    // Normalizar prioridad y categoría (evitar errores por mayúsculas de IA)
-    const normalizedPriority = priority ? (String(priority).toLowerCase() as Priority) : undefined;
-    const normalizedCategory = category ? (String(category).toLowerCase() as Category) : undefined;
-
     const dataToUpdate: any = {
       enrichmentStatus: EnrichmentStatus.done,
       enrichedAt: new Date(),
     };
 
-    if (normalizedPriority) dataToUpdate.priority = normalizedPriority;
-    if (normalizedCategory) dataToUpdate.category = normalizedCategory;
+    if (priority !== undefined) {
+      dataToUpdate.priority = parsePriority(priority);
+    }
+    if (category !== undefined) {
+      dataToUpdate.category = parseCategory(category);
+    }
     if (tags !== undefined) {
       dataToUpdate.tags = Array.isArray(tags)
         ? tags
