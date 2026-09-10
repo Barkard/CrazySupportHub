@@ -7,7 +7,15 @@ import userRoutes from './routes/user.routes.js';
 
 const app: Express = express();
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://crazy-support-hub.vercel.app',
+    'https://crazy-support-hub.vercel.app/',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 app.get('/health', (_req: Request, res: Response) => {
