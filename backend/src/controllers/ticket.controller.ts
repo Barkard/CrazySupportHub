@@ -4,10 +4,20 @@ import { triggerN8nEnrichment } from '../services/n8n.service.js';
 import { addSSEClient, removeSSEClient, broadcastTicketEvent } from '../services/sse.service.js';
 import { Role, TicketStatus, Priority, Category, EnrichmentStatus } from '@prisma/client';
 
-// 1. Obtener lista de tickets con filtros opcionales
+// 1. Obtener lista de tickets con filtros opcionales, paginación por lotes y ordenamiento
 export const getTickets = async (req: Request, res: Response) => {
   try {
-    const { status, priority, category, assignedTo } = req.query;
+    const {
+      status,
+      priority,
+      category,
+      assignedTo,
+      page,
+      limit,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      search,
+    } = req.query;
 
     const where: any = {};
     if (status) where.status = status as TicketStatus;
@@ -15,14 +25,53 @@ export const getTickets = async (req: Request, res: Response) => {
     if (category) where.category = category as Category;
     if (assignedTo) where.assignedTo = Number(assignedTo);
 
-    const tickets = await prisma.ticket.findMany({
+    if (search && typeof search === 'string' && search.trim()) {
+      where.OR = [
+        { title: { contains: search.trim(), mode: 'insensitive' } },
+        { description: { contains: search.trim(), mode: 'insensitive' } },
+      ];
+    }
+
+    // Validación de campos seguros para ordenamiento
+    const validSortFields = ['id', 'createdAt', 'updatedAt', 'title', 'status', 'priority', 'category'];
+    const orderField = validSortFields.includes(String(sortBy)) ? String(sortBy) : 'createdAt';
+    const orderDir: 'asc' | 'desc' = String(sortOrder).toLowerCase() === 'asc' ? 'asc' : 'desc';
+
+    // Paginación
+    const pageNum = page ? Math.max(1, Number(page)) : null;
+    const limitNum = limit ? Math.max(1, Number(limit)) : null;
+
+    const total = await prisma.ticket.count({ where });
+
+    const findOptions: any = {
       where,
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
         assignee: { select: { id: true, name: true, email: true, role: true } },
       },
-      orderBy: { createdAt: 'desc' },
-    });
+      orderBy: { [orderField]: orderDir },
+    };
+
+    if (pageNum && limitNum) {
+      findOptions.skip = (pageNum - 1) * limitNum;
+      findOptions.take = limitNum;
+    }
+
+    const tickets = await prisma.ticket.findMany(findOptions);
+
+    if (pageNum && limitNum) {
+      return res.json({
+        data: tickets,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum),
+          hasNextPage: pageNum < Math.ceil(total / limitNum),
+          hasPrevPage: pageNum > 1,
+        },
+      });
+    }
 
     return res.json(tickets);
   } catch (error) {

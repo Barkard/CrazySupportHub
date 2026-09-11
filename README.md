@@ -190,5 +190,8 @@ Siguiendo el principio de honestidad y responsabilidad técnica, a continuación
 16. **`feat(sse): streaming en tiempo real con Server-Sent Events`:**
     * ✋ *Manual:* Definición del requerimiento de reactividad en tiempo real para evitar recargas manuales.
     * 🤖 *IA:* Implementación del servicio `sse.service.ts` con broadcast de eventos (`ticket_created`, `ticket_updated`), endpoint `/events/stream` y suscripción con `EventSource` en `DashboardPage` y `TicketDetailModal`.
+17. **`feat: paginacion por lotes elegibles, ordenamiento y busqueda`:**
+    * ✋ *Manual:* Solicitud del requerimiento de paginación por lotes seleccionables para optimizar el rendimiento de la base de datos y ordenamiento flexible de la tabla.
+    * 🤖 *IA:* Soporte de paginación (`take`, `skip`), filtros de búsqueda y ordenamiento seguro en `ticket.controller.ts:getTickets`; maquetación de selector de lotes (5, 10, 20, 50, Todos), buscador en vivo, cabeceras interactivas con `ArrowUpDown` y barra de paginación completa en `DashboardPage.tsx`.
 
 ---
