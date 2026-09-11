@@ -193,5 +193,8 @@ Siguiendo el principio de honestidad y responsabilidad técnica, a continuación
 17. **`feat: paginacion por lotes elegibles, ordenamiento y busqueda`:**
     * ✋ *Manual:* Solicitud del requerimiento de paginación por lotes seleccionables para optimizar el rendimiento de la base de datos y ordenamiento flexible de la tabla.
     * 🤖 *IA:* Soporte de paginación (`take`, `skip`), filtros de búsqueda y ordenamiento seguro en `ticket.controller.ts:getTickets`; maquetación de selector de lotes (5, 10, 20, 50, Todos), buscador en vivo, cabeceras interactivas con `ArrowUpDown` y barra de paginación completa en `DashboardPage.tsx`.
+18. **`feat: registro de usuarios (rol agente), validaciones inline y codigos HTTP consistentes`:**
+    * ✋ *Manual:* Definición del requerimiento de registro abierto con rol de agente por defecto, eliminación de `alert()` y exigencia de validaciones inline en los formularios.
+    * 🤖 *IA:* Endpoint `POST /api/auth/register` con rol `Role.agent` forzado y respuesta `201 Created` / `409 Conflict`; estandarización exhaustiva de códigos HTTP (`400`, `401`, `403`, `404`, `409`, `500`); rediseño de `LoginPage.tsx` con tabs de Login/Registro y maquetación de validaciones inline directas en `CreateTicketModal.tsx` y `NewTicketPage.tsx`.
 
 ---

@@ -24,7 +24,7 @@ export const getUsers = async (req: Request, res: Response) => {
       orderBy: { id: 'asc' },
     });
 
-    return res.json(users);
+    return res.status(200).json(users);
   } catch (error) {
     console.error('Error al obtener usuarios:', error);
     return res.status(500).json({ error: 'Error al obtener la lista de usuarios' });
@@ -37,12 +37,13 @@ export const createUser = async (req: Request, res: Response) => {
     const { name, email, password, role } = req.body;
 
     if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Nombre, email y contraseña son obligatorios' });
+      return res.status(400).json({ error: 'Nombre, correo electrónico y contraseña son obligatorios' });
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    const cleanEmail = String(email).toLowerCase().trim();
+    const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
     if (existingUser) {
-      return res.status(400).json({ error: 'Ya existe un usuario con este correo electrónico' });
+      return res.status(409).json({ error: 'Ya existe un usuario registrado con este correo electrónico' });
     }
 
     // Sincronizar secuencia de autoincremento por seguridad si es necesario
@@ -54,8 +55,8 @@ export const createUser = async (req: Request, res: Response) => {
 
     const newUser = await prisma.user.create({
       data: {
-        name,
-        email,
+        name: String(name).trim(),
+        email: cleanEmail,
         passwordHash,
         role: role === 'admin' ? Role.admin : Role.agent,
       },
@@ -87,8 +88,15 @@ export const updateUser = async (req: Request, res: Response) => {
     }
 
     const data: any = {};
-    if (name) data.name = name;
-    if (email) data.email = email;
+    if (name) data.name = String(name).trim();
+    if (email) {
+      const cleanEmail = String(email).toLowerCase().trim();
+      const duplicate = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (duplicate && duplicate.id !== id) {
+        return res.status(409).json({ error: 'El correo electrónico ya está en uso por otro usuario' });
+      }
+      data.email = cleanEmail;
+    }
     if (role && (role === 'admin' || role === 'agent')) data.role = role as Role;
     if (password) {
       data.passwordHash = await bcrypt.hash(password, 10);
@@ -106,7 +114,7 @@ export const updateUser = async (req: Request, res: Response) => {
       },
     });
 
-    return res.json(updated);
+    return res.status(200).json(updated);
   } catch (error) {
     console.error('Error al actualizar usuario:', error);
     return res.status(500).json({ error: 'Error al actualizar usuario' });
@@ -128,7 +136,7 @@ export const deleteUser = async (req: Request, res: Response) => {
     }
 
     await prisma.user.delete({ where: { id } });
-    return res.json({ message: 'Usuario eliminado exitosamente' });
+    return res.status(200).json({ message: 'Usuario eliminado exitosamente' });
   } catch (error) {
     console.error('Error al eliminar usuario:', error);
     return res.status(500).json({ error: 'Error al eliminar usuario' });
