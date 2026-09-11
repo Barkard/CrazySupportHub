@@ -1,0 +1,83 @@
+services:
+  # ==========================================
+  # Backend API Service (Express + Prisma)
+  # ==========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: crazysupporthub-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - N8N_CALLBACK_SECRET=${N8N_CALLBACK_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3001}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - app-network
+
+  # ==========================================
+  # Frontend Service (Next.js Standalone)
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000/api}
+    container_name: crazysupporthub-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3001}:3001"
+    environment:
+      - PORT=3001
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000/api}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ==========================================
+  # Optional: Local PostgreSQL (Profile: local-db)
+  # Úsalo si deseas base de datos local en vez de Neon Cloud
+  # Comando: docker compose --profile local-db up -d
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: crazysupporthub-postgres
+    profiles: ["local-db"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-crazysupporthub}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  pgdata:
+    driver: local

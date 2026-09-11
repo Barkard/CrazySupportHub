@@ -95,7 +95,42 @@
 
 ---
 
-### ⚡ Ejecución Rápida Unificada (Frontend + Backend)
+### 🐳 D. Despliegue con Docker y Docker Compose (Producción)
+
+CrazySupportHub incluye configuración de Dockerización multi-stage optimizada tanto para el Backend (Express + Prisma) como para el Frontend (Next.js Standalone).
+
+1. **Configurar variables de entorno:**
+   Copia la plantilla de variables en la raíz del proyecto:
+   ```bash
+   cp .env.example .env
+   ```
+   Edita `.env` con tu `DATABASE_URL` (Neon o local), `JWT_SECRET`, `N8N_WEBHOOK_URL` y `N8N_CALLBACK_SECRET`.
+
+2. **Levantar todos los servicios en producción:**
+   ```bash
+   # Construir e iniciar contenedores en segundo plano
+   docker compose up --build -d
+   ```
+
+3. **Verificación de servicios:**
+   * **Frontend:** [http://localhost:3001](http://localhost:3001)
+   * **Backend API & Healthcheck:** [http://localhost:3000/health](http://localhost:3000/health)
+
+4. **Comandos útiles:**
+   ```bash
+   # Ver logs en tiempo real
+   docker compose logs -f
+
+   # Detener servicios
+   docker compose down
+
+   # Si prefieres una base de datos PostgreSQL local en contenedor (sin Neon):
+   docker compose --profile local-db up -d
+   ```
+
+---
+
+### ⚡ Ejecución Rápida Local (Sin Docker)
 Desde la raíz del proyecto puedes correr ambos servicios simultáneamente:
 ```bash
 pnpm install
@@ -196,5 +231,8 @@ Siguiendo el principio de honestidad y responsabilidad técnica, a continuación
 18. **`feat: registro de usuarios (rol agente), validaciones inline y codigos HTTP consistentes`:**
     * ✋ *Manual:* Definición del requerimiento de registro abierto con rol de agente por defecto, eliminación de `alert()` y exigencia de validaciones inline en los formularios.
     * 🤖 *IA:* Endpoint `POST /api/auth/register` con rol `Role.agent` forzado y respuesta `201 Created` / `409 Conflict`; estandarización exhaustiva de códigos HTTP (`400`, `401`, `403`, `404`, `409`, `500`); rediseño de `LoginPage.tsx` con tabs de Login/Registro y maquetación de validaciones inline directas en `CreateTicketModal.tsx` y `NewTicketPage.tsx`.
+19. **`feat: dockerizacion y orquestacion con docker-compose para produccion`:**
+    * ✋ *Manual:* Definición de la estrategia de empaquetado para despliegue de entrega en producción e integración de healthchecks.
+    * 🤖 *IA:* Creación de `Dockerfile` multi-stage optimizado para Backend con sincronización de Prisma en `docker-entrypoint.sh`; `Dockerfile` multi-stage con output standalone para Next.js en Frontend; orquestación unificada en `docker-compose.yml`, perfiles de base de datos local y documentación de variables en `.env.example`.
 
 ---

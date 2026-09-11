@@ -9,7 +9,10 @@
     "dev:frontend": "pnpm --dir frontend dev",
     "build": "pnpm --dir backend build && pnpm --dir frontend build",
     "seed": "pnpm --dir backend exec prisma db seed",
-    "studio": "pnpm --dir backend exec prisma studio"
+    "studio": "pnpm --dir backend exec prisma studio",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
   },
   "keywords": [],
   "author": "",
