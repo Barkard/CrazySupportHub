@@ -17,7 +17,7 @@ export const removeSSEClient = (res: Response): void => {
 };
 
 export const broadcastTicketEvent = (
-  event: 'ticket_created' | 'ticket_updated',
+  event: 'ticket_created' | 'ticket_updated' | 'ticket_deleted',
   data: unknown
 ): void => {
   if (clients.size === 0) return;

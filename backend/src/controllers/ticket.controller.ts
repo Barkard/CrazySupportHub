@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { prisma } from '../config/prisma.js';
 import { triggerN8nEnrichment } from '../services/n8n.service.js';
 import { addSSEClient, removeSSEClient, broadcastTicketEvent } from '../services/sse.service.js';
-import { TicketStatus, Priority, Category, EnrichmentStatus } from '@prisma/client';
+import { Role, TicketStatus, Priority, Category, EnrichmentStatus } from '@prisma/client';
 
 // 1. Obtener lista de tickets con filtros opcionales
 export const getTickets = async (req: Request, res: Response) => {
@@ -18,8 +18,8 @@ export const getTickets = async (req: Request, res: Response) => {
     const tickets = await prisma.ticket.findMany({
       where,
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
+        creator: { select: { id: true, name: true, email: true, role: true } },
+        assignee: { select: { id: true, name: true, email: true, role: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -39,8 +39,8 @@ export const getTicketById = async (req: Request, res: Response) => {
     const ticket = await prisma.ticket.findUnique({
       where: { id },
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
+        creator: { select: { id: true, name: true, email: true, role: true } },
+        assignee: { select: { id: true, name: true, email: true, role: true } },
       },
     });
 
@@ -54,16 +54,20 @@ export const getTicketById = async (req: Request, res: Response) => {
   }
 };
 
-// 3. Crear un nuevo ticket y disparar n8n
+// 3. Crear un nuevo ticket y disparar n8n (Exclusivo Administrador)
 export const createTicket = async (req: Request, res: Response) => {
   try {
+    if (req.user?.role !== Role.admin) {
+      return res.status(403).json({ error: 'Acceso denegado: Solo los administradores pueden crear tickets' });
+    }
+
     const { title, description, assignedTo } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({ error: 'El título y la descripción son obligatorios' });
     }
 
-    const createdBy = req.user?.id || 1; // ID del usuario autenticado
+    const createdBy = req.user?.id || 1;
     const assignedToId = assignedTo ? Number(assignedTo) : null;
 
     const newTicket = await prisma.ticket.create({
@@ -100,11 +104,11 @@ export const createTicket = async (req: Request, res: Response) => {
   }
 };
 
-// 4. Actualizar un ticket (estado, agente asignado, etc.)
+// 4. Actualizar un ticket (Admin: CRUD completo; Agente: estado, auto-asignación y respuesta)
 export const updateTicket = async (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const { status, priority, category, assignedTo, tags, suggestedReply } = req.body;
+    const { title, description, status, priority, category, assignedTo, tags, suggestedReply } = req.body;
 
     const existingTicket = await prisma.ticket.findUnique({ where: { id } });
     if (!existingTicket) {
@@ -112,6 +116,21 @@ export const updateTicket = async (req: Request, res: Response) => {
     }
 
     const data: any = {};
+
+    // Edición de título y descripción permitida exclusivamente para Administradores
+    if (title !== undefined) {
+      if (req.user?.role !== Role.admin) {
+        return res.status(403).json({ error: 'Solo los administradores pueden editar el título del ticket' });
+      }
+      data.title = title;
+    }
+    if (description !== undefined) {
+      if (req.user?.role !== Role.admin) {
+        return res.status(403).json({ error: 'Solo los administradores pueden editar la descripción del ticket' });
+      }
+      data.description = description;
+    }
+
     if (status) data.status = status as TicketStatus;
     if (priority) data.priority = priority as Priority;
     if (category) data.category = category as Category;
@@ -125,8 +144,8 @@ export const updateTicket = async (req: Request, res: Response) => {
       where: { id },
       data,
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
+        creator: { select: { id: true, name: true, email: true, role: true } },
+        assignee: { select: { id: true, name: true, email: true, role: true } },
       },
     });
 
@@ -139,7 +158,33 @@ export const updateTicket = async (req: Request, res: Response) => {
   }
 };
 
-// 5. Callback Endpoint para n8n (Recibe la clasificación de la IA)
+// 5. Eliminar un ticket (Exclusivo Administrador)
+export const deleteTicket = async (req: Request, res: Response) => {
+  try {
+    if (req.user?.role !== Role.admin) {
+      return res.status(403).json({ error: 'Acceso denegado: Solo los administradores pueden eliminar tickets' });
+    }
+
+    const id = Number(req.params.id);
+
+    const ticket = await prisma.ticket.findUnique({ where: { id } });
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
+
+    await prisma.ticket.delete({ where: { id } });
+
+    // Notificar eliminación a todos los clientes conectados en tiempo real
+    broadcastTicketEvent('ticket_deleted', { id });
+
+    return res.json({ message: 'Ticket eliminado exitosamente', id });
+  } catch (error) {
+    console.error('Error al eliminar ticket:', error);
+    return res.status(500).json({ error: 'Error al eliminar el ticket' });
+  }
+};
+
+// 6. Callback Endpoint para n8n (Recibe la clasificación de la IA)
 export const enrichTicket = async (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
@@ -187,8 +232,8 @@ export const enrichTicket = async (req: Request, res: Response) => {
       where: { id },
       data: dataToUpdate,
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
+        creator: { select: { id: true, name: true, email: true, role: true } },
+        assignee: { select: { id: true, name: true, email: true, role: true } },
       },
     });
 
@@ -203,7 +248,7 @@ export const enrichTicket = async (req: Request, res: Response) => {
   }
 };
 
-// 6. Reintentar enriquecimiento de IA manualmente
+// 7. Reintentar enriquecimiento de IA manualmente
 export const retryEnrichment = async (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
@@ -219,8 +264,8 @@ export const retryEnrichment = async (req: Request, res: Response) => {
         enrichmentStatus: EnrichmentStatus.pending,
       },
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
+        creator: { select: { id: true, name: true, email: true, role: true } },
+        assignee: { select: { id: true, name: true, email: true, role: true } },
       },
     });
 
@@ -239,7 +284,7 @@ export const retryEnrichment = async (req: Request, res: Response) => {
   }
 };
 
-// 7. Server-Sent Events (SSE) Stream para clientes frontend
+// 8. Server-Sent Events (SSE) Stream para clientes frontend
 export const streamTicketEvents = (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');

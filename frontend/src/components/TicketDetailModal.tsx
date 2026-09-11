@@ -18,7 +18,9 @@ import {
   CornerDownLeft,
   RefreshCw,
   UserCheck,
-  Shield
+  Edit3,
+  Trash2,
+  Save,
 } from 'lucide-react';
 
 interface Ticket {
@@ -32,8 +34,8 @@ interface Ticket {
   suggestedReply?: string | null;
   enrichmentStatus: 'pending' | 'processing' | 'completed' | 'done' | 'failed';
   createdAt: string;
-  creator?: { id?: number; name?: string; email?: string };
-  assignee?: { id?: number; name?: string; email?: string } | null;
+  creator?: { id?: number; name?: string; email?: string; role?: string };
+  assignee?: { id?: number; name?: string; email?: string; role?: string } | null;
 }
 
 interface SimpleUser {
@@ -61,11 +63,17 @@ export function TicketDetailModal({
   const [agents, setAgents] = useState<SimpleUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [retryingEnrichment, setRetryingEnrichment] = useState(false);
   const [copied, setCopied] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [replySent, setReplySent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Estados para Edición de Administrador (CRUD completo)
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
 
   // Cargar ticket y lista de agentes (si es admin)
   useEffect(() => {
@@ -74,10 +82,13 @@ export function TicketDetailModal({
       setError(null);
       setCopied(false);
       setReplySent(false);
+      setIsEditing(false);
 
       api.get(`/tickets/${ticketId}`)
         .then((response) => {
           setTicket(response.data);
+          setEditTitle(response.data.title);
+          setEditDescription(response.data.description);
           setReplyText(response.data.suggestedReply || '');
         })
         .catch((err) => {
@@ -98,6 +109,7 @@ export function TicketDetailModal({
       setTicket(null);
       setError(null);
       setReplyText('');
+      setIsEditing(false);
     }
   }, [isOpen, ticketId, user]);
 
@@ -113,6 +125,10 @@ export function TicketDetailModal({
         const updated: Ticket = JSON.parse(e.data);
         if (updated.id === ticketId) {
           setTicket((prev) => (prev ? { ...prev, ...updated } : updated));
+          if (!isEditing) {
+            setEditTitle(updated.title);
+            setEditDescription(updated.description);
+          }
           if (updated.suggestedReply) {
             setReplyText((current) => current || updated.suggestedReply || '');
           }
@@ -122,20 +138,33 @@ export function TicketDetailModal({
       }
     });
 
+    eventSource.addEventListener('ticket_deleted', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.id === ticketId) {
+          alert('Este ticket fue eliminado por un administrador.');
+          onClose();
+          if (onTicketUpdated) onTicketUpdated();
+        }
+      } catch (err) {
+        console.error('Error al procesar ticket_deleted SSE:', err);
+      }
+    });
+
     return () => {
       eventSource.close();
     };
-  }, [isOpen, ticketId]);
+  }, [isOpen, ticketId, isEditing, onClose, onTicketUpdated]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape' && isOpen && !updating && !deleting) {
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, updating, deleting]);
 
   if (!isOpen) return null;
 
@@ -173,6 +202,44 @@ export function TicketDetailModal({
     }
   };
 
+  // Guardar edición de Título y Descripción (Solo Admin)
+  const handleSaveEdit = async () => {
+    if (!ticket || !editTitle.trim() || !editDescription.trim()) return;
+    setUpdating(true);
+    try {
+      const response = await api.patch(`/tickets/${ticket.id}`, {
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+      });
+      setTicket(response.data);
+      setIsEditing(false);
+      if (onTicketUpdated) onTicketUpdated();
+    } catch (err: any) {
+      console.error('Error al guardar edición:', err);
+      alert(err.response?.data?.error || 'Error al actualizar el ticket');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Eliminar ticket (Solo Admin)
+  const handleDeleteTicket = async () => {
+    if (!ticket) return;
+    if (!confirm(`¿Estás seguro de eliminar permanentemente el Ticket #${ticket.id}: "${ticket.title}"? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.delete(`/tickets/${ticket.id}`);
+      if (onTicketUpdated) onTicketUpdated();
+      onClose();
+    } catch (err: any) {
+      console.error('Error al eliminar ticket:', err);
+      alert(err.response?.data?.error || 'Error al eliminar el ticket');
+      setDeleting(false);
+    }
+  };
+
   // Reintentar Enriquecimiento IA (Admin)
   const handleRetryEnrichment = async () => {
     if (!ticket) return;
@@ -189,7 +256,6 @@ export function TicketDetailModal({
     }
   };
 
-  // Copiar respuesta sugerida al portapapeles
   const handleCopyReply = () => {
     if (ticket?.suggestedReply) {
       navigator.clipboard.writeText(ticket.suggestedReply);
@@ -198,21 +264,22 @@ export function TicketDetailModal({
     }
   };
 
-  // Insertar respuesta de IA en el editor del agente
   const handleInsertReply = () => {
     if (ticket?.suggestedReply) {
       setReplyText(ticket.suggestedReply);
     }
   };
 
-  // Enviar respuesta y opcionalmente resolver ticket
-  const handleSendResponse = async (resolveTicket = false) => {
+  // Enviar respuesta oficial del agente
+  const handleSendResponse = async (resolveTicket: boolean = false) => {
     if (!ticket || !replyText.trim()) return;
+
     setUpdating(true);
     try {
       const payload: any = {
         suggestedReply: replyText,
       };
+
       if (resolveTicket) {
         payload.status = 'resolved';
       } else if (ticket.status === 'open') {
@@ -254,7 +321,7 @@ export function TicketDetailModal({
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !updating && !deleting) onClose();
       }}
     >
       <div 
@@ -263,23 +330,33 @@ export function TicketDetailModal({
       >
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/80 bg-slate-900/90 gap-4">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <span className="text-xs font-mono font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2.5 py-1 rounded-lg shrink-0">
               #{ticket?.id || ticketId}
             </span>
-            <h2 className="text-lg font-bold text-white truncate">
-              {ticket ? ticket.title : 'Cargando ticket...'}
-            </h2>
+            {isEditing ? (
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full bg-slate-950 border border-indigo-500 rounded-lg px-3 py-1 text-base font-bold text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="Título del ticket..."
+              />
+            ) : (
+              <h2 className="text-lg font-bold text-white truncate">
+                {ticket ? ticket.title : 'Cargando ticket...'}
+              </h2>
+            )}
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {ticket && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-400 hidden sm:inline">Estado:</span>
                 <select
                   value={ticket.status}
                   onChange={(e) => handleStatusChange(e.target.value)}
-                  disabled={updating}
+                  disabled={updating || deleting}
                   className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
                 >
                   <option value="open">Abierto</option>
@@ -289,8 +366,59 @@ export function TicketDetailModal({
                 </select>
               </div>
             )}
+
+            {/* Acciones de Edición/Eliminación para Administrador */}
+            {user?.role === 'admin' && ticket && (
+              <div className="flex items-center gap-1.5 border-l border-slate-800 pl-2">
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={updating || !editTitle.trim() || !editDescription.trim()}
+                      className="p-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-lg transition-colors text-xs flex items-center gap-1 px-2.5"
+                      title="Guardar cambios de edición"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Guardar</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditing(false);
+                        setEditTitle(ticket.title);
+                        setEditDescription(ticket.description);
+                      }}
+                      disabled={updating}
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg transition-colors text-xs"
+                      title="Cancelar edición"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg transition-colors"
+                      title="Editar ticket (Solo Admin)"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleDeleteTicket}
+                      disabled={deleting}
+                      className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg transition-colors disabled:opacity-40"
+                      title="Eliminar ticket (Solo Admin)"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
             <button
               onClick={onClose}
+              disabled={deleting}
               className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors"
               title="Cerrar modal"
             >
@@ -336,14 +464,29 @@ export function TicketDetailModal({
                   </div>
                 )}
 
-                {/* Descripción */}
+                {/* Descripción (Visualización o Modo Edición) */}
                 <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-5 space-y-2">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                    Descripción del Problema
-                  </span>
-                  <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-line">
-                    {ticket.description}
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                      Descripción del Problema
+                    </span>
+                    {isEditing && (
+                      <span className="text-[11px] text-amber-400 font-medium">Modo Edición Activado</span>
+                    )}
+                  </div>
+                  {isEditing ? (
+                    <textarea
+                      rows={5}
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      className="w-full bg-slate-900 border border-indigo-500 rounded-lg p-3 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y"
+                      placeholder="Escribe la nueva descripción..."
+                    />
+                  ) : (
+                    <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-line">
+                      {ticket.description}
+                    </p>
+                  )}
                 </div>
 
                 {/* AI Enriched Section */}

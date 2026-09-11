@@ -126,6 +126,15 @@ export default function DashboardPage() {
       }
     });
 
+    eventSource.addEventListener('ticket_deleted', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setTickets((prev) => prev.filter((t) => t.id !== data.id));
+      } catch (err) {
+        console.error('Error al recibir ticket_deleted por SSE:', err);
+      }
+    });
+
     return () => {
       eventSource.close();
     };
@@ -332,13 +341,15 @@ export default function DashboardPage() {
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors shadow-lg shadow-indigo-600/20"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Nuevo Ticket</span>
-            </button>
+            {user.role === 'admin' && (
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors shadow-lg shadow-indigo-600/20"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nuevo Ticket</span>
+              </button>
+            )}
           </div>
         </div>
 
