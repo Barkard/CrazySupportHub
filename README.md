@@ -188,12 +188,3 @@ Siguiendo el principio de honestidad y responsabilidad técnica, a continuación
     * 🤖 *IA:* Integración del selector en `CreateTicketModal.tsx` condicionado al rol `admin` y actualización del endpoint `POST /api/tickets`.
 
 ---
-
-## 👥 Credenciales de Acceso (Entorno de Prueba / Producción)
-
-| Rol | Nombre | Email | Contraseña |
-| :--- | :--- | :--- | :--- |
-| **Administrador** | Ana Torres | `admin@crazysupporthub.test` | `Admin1234!` |
-| **Administrador** | Kevin Saavedra | `kevin@gmail.com` | `28169315` |
-| **Agente** | Bruno Salas | `bruno.agente@crazysupporthub.test` | `Agent1234!` |
-| **Agente** | Carla Méndez | `carla.agente@crazysupporthub.test` | `Agent1234!` |
