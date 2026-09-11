@@ -1,0 +1,167 @@
+{
+  "name": "CrazySupportHub - Ticket AI Enrichment",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/ticket-created",
+        "options": {}
+      },
+      "id": "c237e551-317f-45f2-81a4-098e0f14eea6",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -16
+      ],
+      "webhookId": "ad9ef95e-f118-4c68-b062-f5d36a3dece6"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un asistente de soporte técnico experto. Clasifica el siguiente ticket y propone una solución.\n\nTítulo: {{ $json.body.title }}\nDescripción: {{ $json.body.description }}\n\nResponde ÚNICAMENTE con un objeto JSON válido y plano, sin texto adicional ni bloques de formato markdown, con exactamente estas claves y valores de tipo string:\n{\n  \"prioridad\": \"una de: baja, media, alta\",\n  \"clasificacion\": \"una categoría corta en una sola línea\",\n  \"solucion_propuesta\": \"la respuesta sugerida al usuario en un solo string de texto\"\n}\nNo anides objetos ni uses arrays. Todos los valores deben ser strings.",
+        "options": {
+          "systemMessage": "=Eres un asistente de soporte técnico experto enfocado en clasificar tickets y proponer soluciones inmediatas en formato JSON."
+        }
+      },
+      "id": "6a9f4c32-b2a1-4d8e-9531-e74e1eb60001",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        250,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "id": "e74e1eb6-6044-43d0-83c1-a4c8c0992190",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        250,
+        180
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nlet rawText = item?.output ?? item?.text ?? item?.content?.parts?.[0]?.text;\n\nif (!rawText && typeof item === 'object') {\n  if (item.prioridad || item.priority) {\n    rawText = JSON.stringify(item);\n  }\n}\n\nif (!rawText) {\n  throw new Error('No se encontró respuesta de texto en la salida del AI Agent');\n}\n\nlet cleanText = String(rawText).trim();\nif (cleanText.startsWith('```')) {\n  cleanText = cleanText.replace(/^```[a-zA-Z]*\\n?/, '').replace(/```$/, '').trim();\n}\n\nlet parsed = {};\ntry {\n  parsed = JSON.parse(cleanText);\n} catch (e) {\n  const match = cleanText.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    parsed = JSON.parse(match[0]);\n  } else {\n    throw new Error('No se pudo parsear el JSON generado por el AI Agent: ' + cleanText);\n  }\n}\n\nconst toStr = (v) => v == null ? '' : (typeof v === 'string' ? v : (Array.isArray(v) ? v.join(String.fromCharCode(10)) : JSON.stringify(v)));\nconst body = $('Webhook').first().json.body || {};\nconst ticketId = body.ticketId ?? body.id ?? body._id ?? '';\n\nreturn [\n  {\n    json: {\n      ticketId,\n      priority: toStr(parsed.prioridad || parsed.priority),\n      category: toStr(parsed.clasificacion || parsed.category),\n      suggestedReply: toStr(parsed.solucion_propuesta || parsed.suggestedReply || parsed.solution),\n      tags: [],\n    },\n  },\n];"
+      },
+      "id": "f5c7b400-589a-4109-8562-010c7cf4aa07",
+      "name": "Parse Gemini Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://crazysupporthub-backend.onrender.com/api/tickets/{{ $json.ticketId }}/enrich",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-callback-secret",
+              "value": "secreto_compartido_para_n8n"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"priority\": {{ JSON.stringify($json.priority) }},\n  \"category\": {{ JSON.stringify($json.category) }},\n  \"tags\": {{ JSON.stringify($json.tags) }},\n  \"suggestedReply\": {{ JSON.stringify($json.suggestedReply) }},\n  \"secret\": \"secreto_compartido_para_n8n\"\n}",
+        "options": {}
+      },
+      "id": "c070ab22-b987-4927-8625-7b5367c0e9cf",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        -16
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Output": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "5952214b-9ecc-47c7-a3c9-ec3190462010",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "606945c7d219a6283f3addc20ba20db2b34e6a609c6a22fef14a04866e242e0e"
+  },
+  "nodeGroups": [],
+  "id": "YNfebjmgFYP3hKYn",
+  "tags": []
+}

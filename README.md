@@ -72,26 +72,28 @@
 
 ---
 
-### C. n8n (Flujo de Automatización con Gemini)
+### C. n8n (Flujo de Automatización con AI Agent y Gemini)
 
-1. **Crear Workflow en n8n:**
-   * **Nodo 1 (Webhook Trigger):**
-     * **Method:** `POST`
-     * **Path:** `webhook/ticket-created`
-     * **Authentication:** Header Auth o validación de cabecera `x-callback-secret`.
-   * **Nodo 2 (Google Gemini / LLM / OpenAI):**
-     * **Prompt:** Instruir al modelo para recibir `{ title, description }` y clasificar en formato JSON estricto:
-       * `priority`: `"low" | "medium" | "high" | "urgent"`
-       * `category`: `"billing" | "technical" | "account" | "other"`
-       * `tags`: array de strings
-       * `suggestedReply`: propuesta de respuesta empática y resolutiva.
-   * **Nodo 3 (HTTP Request - Callback):**
-     * **Method:** `POST`
-     * **URL:** `http://<TU_BACKEND_HOST>/api/tickets/{{$json.ticketId}}/enrich`
-     * **Headers:**
-       * `Content-Type`: `application/json`
-       * `x-callback-secret`: `secreto_compartido_para_n8n`
-     * **Body:** Enviar el JSON generado por Gemini.
+1. **Importar o Configurar Workflow en n8n:**
+   * Se incluye el workflow exportado listo para importar en [`n8n/CrazySupportHubN8N.json`](n8n/CrazySupportHubN8N.json).
+   * **Estructura de Nodos:**
+     * **Nodo 1 (Webhook Trigger):**
+       * **Method:** `POST`
+       * **Path:** `webhook/ticket-created`
+       * **Authentication:** Validación de cabecera `x-callback-secret`.
+     * **Nodo 2 (AI Agent - `@n8n/n8n-nodes-langchain.agent`):**
+       * **Tipo:** AI Agent de LangChain configurado en modo `define`.
+       * **Prompt:** Recibe `{ title, description }` e instruye la clasificación en JSON estricto (`prioridad`, `clasificacion`, `solucion_propuesta`).
+       * **Modelo Conectado (Google Gemini Chat Model - `@n8n/n8n-nodes-langchain.lmChatGoogleGemini`):** Conectado al AI Agent a través del puerto `ai_languageModel` (utilizando `models/gemini-3-flash-preview` o credenciales Google Gemini API).
+     * **Nodo 3 (Parse Gemini Output - Code JavaScript):**
+       * Procesa la respuesta generada por el AI Agent (`$json.output`), limpia posibles bloques markdown y estandariza las propiedades (`ticketId`, `priority`, `category`, `tags`, `suggestedReply`).
+     * **Nodo 4 (HTTP Request - Callback de Enriquecimiento):**
+       * **Method:** `POST`
+       * **URL:** `http://<TU_BACKEND_HOST>/api/tickets/{{ $json.ticketId }}/enrich`
+       * **Headers:**
+         * `Content-Type`: `application/json`
+         * `x-callback-secret`: `secreto_compartido_para_n8n`
+       * **Body:** JSON con los campos enriquecidos para actualizar el ticket en la base de datos y disparar SSE.
 
 ---
 
