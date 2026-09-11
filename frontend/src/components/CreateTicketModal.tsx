@@ -2,7 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { X, Send, Loader2, AlertCircle } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { X, Send, Loader2, AlertCircle, UserCheck } from 'lucide-react';
+
+interface SimpleUser {
+  id: number;
+  name: string;
+  email: string;
+  role: 'agent' | 'admin';
+}
 
 interface CreateTicketModalProps {
   isOpen: boolean;
@@ -11,8 +19,11 @@ interface CreateTicketModalProps {
 }
 
 export function CreateTicketModal({ isOpen, onClose, onSuccess }: CreateTicketModalProps) {
+  const { user } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [assignedTo, setAssignedTo] = useState<string>('');
+  const [agents, setAgents] = useState<SimpleUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -20,10 +31,18 @@ export function CreateTicketModal({ isOpen, onClose, onSuccess }: CreateTicketMo
     if (isOpen) {
       setTitle('');
       setDescription('');
+      setAssignedTo('');
       setError(null);
       setIsSubmitting(false);
+
+      // Si el usuario es administrador, cargar la lista de agentes/usuarios para asignación
+      if (user?.role === 'admin') {
+        api.get('/users')
+          .then((res) => setAgents(res.data))
+          .catch((err) => console.error('Error al cargar agentes para asignación:', err));
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, user]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -52,6 +71,7 @@ export function CreateTicketModal({ isOpen, onClose, onSuccess }: CreateTicketMo
       await api.post('/tickets', {
         title,
         description,
+        assignedTo: assignedTo ? Number(assignedTo) : undefined,
       });
 
       onSuccess();
@@ -127,13 +147,40 @@ export function CreateTicketModal({ isOpen, onClose, onSuccess }: CreateTicketMo
             </label>
             <textarea
               required
-              rows={5}
+              rows={4}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Explica los pasos para reproducir el problema o los detalles de tu solicitud..."
               className="w-full bg-slate-950 border border-slate-800 rounded-lg p-4 text-slate-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors resize-none"
             />
           </div>
+
+          {/* Asignación de Agente (Visible solo para Administradores) */}
+          {user?.role === 'admin' && (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
+                  Asignar a Agente / Usuario (Opcional)
+                </label>
+                <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded font-medium">
+                  Solo Admin
+                </span>
+              </div>
+              <select
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors cursor-pointer"
+              >
+                <option value="">Sin asignar (Auto-asignación posterior)</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name} ({agent.role === 'admin' ? 'Admin' : 'Agente'}) - {agent.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Modal Actions */}
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-800/80">

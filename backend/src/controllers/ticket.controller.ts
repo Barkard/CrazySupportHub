@@ -56,21 +56,31 @@ export const getTicketById = async (req: Request, res: Response) => {
 // 3. Crear un nuevo ticket y disparar n8n
 export const createTicket = async (req: Request, res: Response) => {
   try {
-    const { title, description } = req.body;
+    const { title, description, assignedTo } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({ error: 'El título y la descripción son obligatorios' });
     }
 
     const createdBy = req.user?.id || 1; // ID del usuario autenticado
+    const assignedToId = assignedTo ? Number(assignedTo) : null;
 
     const newTicket = await prisma.ticket.create({
       data: {
         title,
         description,
         createdBy,
+        assignedTo: assignedToId,
         status: TicketStatus.open,
         enrichmentStatus: EnrichmentStatus.pending,
+      },
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true, role: true },
+        },
+        assignee: {
+          select: { id: true, name: true, email: true, role: true },
+        },
       },
     });
 
