@@ -119,8 +119,9 @@ pnpm dev
 
 ## ⚠️ 3. Pendientes / Mejoras Futuras
 
-1. **WebSockets / Server-Sent Events (SSE):** Actualmente, el cambio de estado de `pending` a `done` se actualiza al recargar o al abrir el modal del ticket. Integrar SSE o WebSockets permitiría actualizar la insignia en tiempo real sin interacción del usuario.
-2. **Cola de Mensajería con Reintentos Exponenciales (BullMQ / Redis):** Para entornos de alta concurrencia, encolar los disparos a n8n en Redis garantizaría rate-limiting y reintentos automáticos ante caídas prolongadas del webhook.
+1. **Cola de Mensajería con Reintentos Exponenciales (BullMQ / Redis):** Para entornos de alta concurrencia masiva, encolar los disparos a n8n en Redis garantizaría control de tasa (*rate-limiting*) y reintentos automáticos ante caídas prolongadas del webhook.
+2. **Exportación Masiva de Reportes (PDF / Excel):** Generación de auditorías descargables con estadísticas de tiempo de respuesta y efectividad de respuestas sugeridas por IA.
+3. **Notificaciones Push / Webhooks Salientes:** Notificar a canales de Slack o Discord cuando un ticket de prioridad `urgent` sea detectado por Gemini.
 
 ---
 
@@ -132,10 +133,10 @@ Siguiendo el principio de honestidad y responsabilidad técnica, a continuación
 
 | Área | ✋ Hecho a Mano (Humano) | 🤖 Hecho con Asistencia de IA |
 | :--- | :--- | :--- |
-| **Arquitectura & Diseño** | Definición del flujo asíncrono con n8n, modelo de permisos RBAC (Admin/Agente), estrategia de autenticación (JWT + Secreto M2M). | Diagramación de interfaces y sugerencias de estructuración de esquemas relacionales. |
+| **Arquitectura & Diseño** | Definición del flujo asíncrono con n8n, modelo de permisos RBAC (Admin/Agente), estrategia de autenticación (JWT + Secreto M2M) y arquitectura de eventos en tiempo real (SSE). | Diagramación de interfaces y sugerencias de estructuración de esquemas relacionales. |
 | **Infraestructura & Cloud** | Aprovisionamiento de base de datos en Neon, configuración de proyecto en Vercel, creación y configuración del workflow en n8n Cloud. | Configuración de scripts de build en `package.json` y `tsconfig.json` para entornos cloud. |
-| **Backend & APIs** | Pruebas de integración manuales con Postman, validación de variables de entorno y lógica de negocio. | Código de controladores Express, middlewares JWT, parsing tolerante a fallos (`parsePriority`/`parseCategory`) y tipado TypeScript ESM. |
-| **Frontend & UX** | Definición del flujo de modales, selección de paleta de colores y validación de experiencia de usuario. | Generación de componentes React/Next.js con Tailwind CSS, modales interactivos y cliente Axios con interceptores. |
+| **Backend & APIs** | Pruebas de integración manuales con Postman, validación de variables de entorno y lógica de negocio. | Código de controladores Express, middlewares JWT, parsing tolerante a fallos (`parsePriority`/`parseCategory`), stream de SSE y tipado TypeScript ESM. |
+| **Frontend & UX** | Definición del flujo de modales, selección de paleta de colores y validación de experiencia de usuario. | Generación de componentes React/Next.js con Tailwind CSS, modales interactivos, listeners de `EventSource` (SSE) y cliente Axios con interceptores. |
 
 ---
 
@@ -186,5 +187,8 @@ Siguiendo el principio de honestidad y responsabilidad técnica, a continuación
 15. **`a804525` (feat: asignacion de agente al crear ticket para admin):**
     * ✋ *Manual:* Solicitud del requerimiento de asignación directa desde la creación.
     * 🤖 *IA:* Integración del selector en `CreateTicketModal.tsx` condicionado al rol `admin` y actualización del endpoint `POST /api/tickets`.
+16. **`feat(sse): streaming en tiempo real con Server-Sent Events`:**
+    * ✋ *Manual:* Definición del requerimiento de reactividad en tiempo real para evitar recargas manuales.
+    * 🤖 *IA:* Implementación del servicio `sse.service.ts` con broadcast de eventos (`ticket_created`, `ticket_updated`), endpoint `/events/stream` y suscripción con `EventSource` en `DashboardPage` y `TicketDetailModal`.
 
 ---

@@ -101,6 +101,32 @@ export function TicketDetailModal({
     }
   }, [isOpen, ticketId, user]);
 
+  // Escuchar actualizaciones en tiempo real vía SSE para el ticket abierto
+  useEffect(() => {
+    if (!isOpen || !ticketId) return;
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+    const eventSource = new EventSource(`${apiUrl}/tickets/events/stream`);
+
+    eventSource.addEventListener('ticket_updated', (e) => {
+      try {
+        const updated: Ticket = JSON.parse(e.data);
+        if (updated.id === ticketId) {
+          setTicket((prev) => (prev ? { ...prev, ...updated } : updated));
+          if (updated.suggestedReply) {
+            setReplyText((current) => current || updated.suggestedReply || '');
+          }
+        }
+      } catch (err) {
+        console.error('Error al procesar SSE en modal de ticket:', err);
+      }
+    });
+
+    return () => {
+      eventSource.close();
+    };
+  }, [isOpen, ticketId]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {

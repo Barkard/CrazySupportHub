@@ -96,6 +96,41 @@ export default function DashboardPage() {
     }
   }, [user, authLoading, router]);
 
+  // Suscripción en tiempo real vía Server-Sent Events (SSE)
+  useEffect(() => {
+    if (!user) return;
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+    const eventSource = new EventSource(`${apiUrl}/tickets/events/stream`);
+
+    eventSource.addEventListener('ticket_created', (e) => {
+      try {
+        const newTicket: Ticket = JSON.parse(e.data);
+        setTickets((prev) => {
+          if (prev.some((t) => t.id === newTicket.id)) return prev;
+          return [newTicket, ...prev];
+        });
+      } catch (err) {
+        console.error('Error al recibir ticket_created por SSE:', err);
+      }
+    });
+
+    eventSource.addEventListener('ticket_updated', (e) => {
+      try {
+        const updatedTicket: Ticket = JSON.parse(e.data);
+        setTickets((prev) =>
+          prev.map((t) => (t.id === updatedTicket.id ? { ...t, ...updatedTicket } : t))
+        );
+      } catch (err) {
+        console.error('Error al recibir ticket_updated por SSE:', err);
+      }
+    });
+
+    return () => {
+      eventSource.close();
+    };
+  }, [user]);
+
   // Auto-asignación rápida directa desde la tabla (para el Agente)
   const handleQuickAssign = async (e: React.MouseEvent, ticketId: number) => {
     e.stopPropagation();

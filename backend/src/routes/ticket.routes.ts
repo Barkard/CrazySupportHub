@@ -7,10 +7,14 @@ import {
   updateTicket,
   enrichTicket,
   retryEnrichment,
+  streamTicketEvents,
 } from '../controllers/ticket.controller.js';
 import { authenticateToken } from '../middlewares/auth.middleware.js';
 
 const router: IRouter = Router();
+
+// Server-Sent Events (SSE) Stream en tiempo real
+router.get('/events/stream', streamTicketEvents);
 
 // Endpoints protegidos para usuarios/agentes
 router.get('/', authenticateToken, getTickets);

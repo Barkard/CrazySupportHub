@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/prisma.js';
 import { triggerN8nEnrichment } from '../services/n8n.service.js';
+import { addSSEClient, removeSSEClient, broadcastTicketEvent } from '../services/sse.service.js';
 import { TicketStatus, Priority, Category, EnrichmentStatus } from '@prisma/client';
 
 // 1. Obtener lista de tickets con filtros opcionales
@@ -84,6 +85,9 @@ export const createTicket = async (req: Request, res: Response) => {
       },
     });
 
+    // Notificar a clientes conectados vía Server-Sent Events (SSE)
+    broadcastTicketEvent('ticket_created', newTicket);
+
     // Disparar en segundo plano la automatización de n8n
     triggerN8nEnrichment(newTicket).catch((err: unknown) =>
       console.error('Error no controlado en n8n:', err)
@@ -126,64 +130,14 @@ export const updateTicket = async (req: Request, res: Response) => {
       },
     });
 
+    // Notificar en tiempo real a clientes conectados
+    broadcastTicketEvent('ticket_updated', updatedTicket);
+
     return res.json(updatedTicket);
   } catch (error) {
     return res.status(500).json({ error: 'Error al actualizar el ticket' });
   }
 };
-
-// 6. Reintentar enriquecimiento de IA manualmente
-export const retryEnrichment = async (req: Request, res: Response) => {
-  try {
-    const id = Number(req.params.id);
-
-    const ticket = await prisma.ticket.findUnique({ where: { id } });
-    if (!ticket) {
-      return res.status(404).json({ error: 'Ticket no encontrado' });
-    }
-
-    const updatedTicket = await prisma.ticket.update({
-      where: { id },
-      data: {
-        enrichmentStatus: EnrichmentStatus.pending,
-      },
-      include: {
-        creator: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
-      },
-    });
-
-    // Re-disparar webhook asíncrono
-    triggerN8nEnrichment(updatedTicket).catch((err: unknown) =>
-      console.error('Error al reintentar enriquecimiento en n8n:', err)
-    );
-
-    return res.json(updatedTicket);
-  } catch (error) {
-    console.error('Error al reintentar enriquecimiento:', error);
-    return res.status(500).json({ error: 'Error al reintentar enriquecimiento de IA' });
-  }
-};
-
-// Helpers para parsear enums de forma segura (soporta español, inglés y texto libre de IA)
-function parsePriority(val: unknown): Priority | undefined {
-  if (!val) return undefined;
-  const s = String(val).toLowerCase().trim();
-  if (s === 'low' || s === 'baja' || s === 'bajo') return Priority.low;
-  if (s === 'medium' || s === 'media' || s === 'medio') return Priority.medium;
-  if (s === 'high' || s === 'alta' || s === 'alto') return Priority.high;
-  if (s === 'urgent' || s === 'urgente' || s === 'critica' || s === 'crítica' || s === 'critical') return Priority.urgent;
-  return Priority.medium;
-}
-
-function parseCategory(val: unknown): Category | undefined {
-  if (!val) return undefined;
-  const s = String(val).toLowerCase().trim();
-  if (s === 'billing' || s.includes('factur') || s.includes('pago') || s.includes('cobro') || s.includes('tarjeta')) return Category.billing;
-  if (s === 'technical' || s.includes('tecnic') || s.includes('técnic') || s.includes('error') || s.includes('bug') || s.includes('sistema') || s.includes('falla') || s.includes('caida') || s.includes('caída')) return Category.technical;
-  if (s === 'account' || s.includes('cuenta') || s.includes('usuario') || s.includes('login') || s.includes('acceso') || s.includes('perfil')) return Category.account;
-  return Category.other;
-}
 
 // 5. Callback Endpoint para n8n (Recibe la clasificación de la IA)
 export const enrichTicket = async (req: Request, res: Response) => {
@@ -232,12 +186,101 @@ export const enrichTicket = async (req: Request, res: Response) => {
     const enrichedTicket = await prisma.ticket.update({
       where: { id },
       data: dataToUpdate,
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+      },
     });
 
-    console.log(`✨ Ticket #${id} enriquecido por IA exitosamente`);
+    // Notificar en tiempo real a clientes conectados vía SSE
+    broadcastTicketEvent('ticket_updated', enrichedTicket);
+
+    console.log(`✨ Ticket #${id} enriquecido por IA exitosamente y emitido vía SSE`);
     return res.json(enrichedTicket);
   } catch (error) {
     console.error('Error al enriquecer ticket desde n8n:', error);
     return res.status(500).json({ error: 'Error al procesar enriquecimiento de n8n' });
   }
 };
+
+// 6. Reintentar enriquecimiento de IA manualmente
+export const retryEnrichment = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+
+    const ticket = await prisma.ticket.findUnique({ where: { id } });
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
+
+    const updatedTicket = await prisma.ticket.update({
+      where: { id },
+      data: {
+        enrichmentStatus: EnrichmentStatus.pending,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    // Notificar actualización de estado
+    broadcastTicketEvent('ticket_updated', updatedTicket);
+
+    // Re-disparar webhook asíncrono
+    triggerN8nEnrichment(updatedTicket).catch((err: unknown) =>
+      console.error('Error al reintentar enriquecimiento en n8n:', err)
+    );
+
+    return res.json(updatedTicket);
+  } catch (error) {
+    console.error('Error al reintentar enriquecimiento:', error);
+    return res.status(500).json({ error: 'Error al reintentar enriquecimiento de IA' });
+  }
+};
+
+// 7. Server-Sent Events (SSE) Stream para clientes frontend
+export const streamTicketEvents = (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  addSSEClient(res);
+
+  // Keep-alive heartbeat cada 30 segundos
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+      removeSSEClient(res);
+    }
+  }, 30000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    removeSSEClient(res);
+  });
+};
+
+// Helpers para parsear enums de forma segura (soporta español, inglés y texto libre de IA)
+function parsePriority(val: unknown): Priority | undefined {
+  if (!val) return undefined;
+  const s = String(val).toLowerCase().trim();
+  if (s === 'low' || s === 'baja' || s === 'bajo') return Priority.low;
+  if (s === 'medium' || s === 'media' || s === 'medio') return Priority.medium;
+  if (s === 'high' || s === 'alta' || s === 'alto') return Priority.high;
+  if (s === 'urgent' || s === 'urgente' || s === 'critica' || s === 'crítica' || s === 'critical') return Priority.urgent;
+  return Priority.medium;
+}
+
+function parseCategory(val: unknown): Category | undefined {
+  if (!val) return undefined;
+  const s = String(val).toLowerCase().trim();
+  if (s === 'billing' || s.includes('factur') || s.includes('pago') || s.includes('cobro') || s.includes('tarjeta')) return Category.billing;
+  if (s === 'technical' || s.includes('tecnic') || s.includes('técnic') || s.includes('error') || s.includes('bug') || s.includes('sistema') || s.includes('falla') || s.includes('caida') || s.includes('caída')) return Category.technical;
+  if (s === 'account' || s.includes('cuenta') || s.includes('usuario') || s.includes('login') || s.includes('acceso') || s.includes('perfil')) return Category.account;
+  return Category.other;
+}
